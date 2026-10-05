@@ -34,29 +34,50 @@ function extractJsonFromText(rawText: string): any {
   return JSON.parse(cleaned);
 }
 
+// Multi-model executor with fallback for high demand spikes
+async function generateWithFallback(options: {
+  contents: any;
+  systemInstruction: string;
+}) {
+  const models = ['gemini-3.8-flash', 'gemini-3.1-flash-lite', 'gemini-flash-latest'];
+  let lastError: any = null;
+
+  for (const model of models) {
+    try {
+      const response = await ai.models.generateContent({
+        model,
+        contents: options.contents,
+        config: {
+          systemInstruction: options.systemInstruction,
+          responseMimeType: 'application/json',
+        },
+      });
+      if (response && response.text) {
+        return response.text;
+      }
+    } catch (err: any) {
+      console.warn(`Model ${model} failed, trying fallback:`, err?.message || err);
+      lastError = err;
+    }
+  }
+
+  throw lastError || new Error('Không thể kết nối đến mô hình AI');
+}
+
 // System instruction for Vietnamese Exam Generation
 const EXAM_SYSTEM_INSTRUCTION = `Bạn là Chuyên gia Khảo thí và Đo lường Đánh giá Giáo dục hàng đầu Việt Nam, chuyên biên soạn đề kiểm tra, ma trận đề và bản đặc tả theo đúng Chương trình Giáo dục Phổ thông (GDPT 2018) cho cả 3 cấp: Tiểu học, THCS và THPT.
 
-QUY TẮC BẮT BUỘC:
-1. ĐÚNG CHUẨN KIẾN THỨC: Phù hợp đúng lứa tuổi, khối lớp, môn học và cấp học của Việt Nam.
-2. TÀI LIỆU THAM CHIẾU: Nếu giáo viên yêu cầu "Chỉ sử dụng tài liệu đã cung cấp", BẮT BUỘC ưu tiên tuyệt đối ngữ liệu trong tài liệu, KHÔNG tự bịa đặt hoặc mở rộng ngoài phạm vi. Nếu dữ liệu không đủ, đánh dấu needsReview = true và nêu rõ trong reviewReason.
-3. MÔN TÍNH TOÁN (Toán, Vật lí, Hóa học, KHTN):
-   - Đảm bảo giải lại từng bài toán trước khi ra đề.
-   - Số liệu chẵn, đẹp, không tạo phương trình vô nghiệm ngoài ý muốn.
-   - Các phương án nhiễu trắc nghiệm phải cùng kiểu dữ liệu, hợp lý, không chênh lệch vô lý.
-4. MÔN NGỮ VĂN, TIẾNG VIỆT, TIẾNG ANH:
-   - Ngữ liệu đọc hiểu giàu giá trị thẩm mĩ, nhân văn, phù hợp lứa tuổi.
-   - Có câu hỏi nhận biết, thông hiểu, vận dụng và viết đoạn/bài.
-5. MÔN LỊCH SỬ, ĐỊA LÍ, GDCD, KINH TẾ PHÁP LUẬT:
-   - Mốc thời gian, nhân vật, địa danh, thuật ngữ và số liệu lịch sử phải chính xác 100%.
-6. ĐỊNH DẠNG CÂU HỎI:
-   - mcq_4: Trắc nghiệm 4 lựa chọn, options gồm đúng 4 chuỗi ['A. ...', 'B. ...', 'C. ...', 'D. ...'], correctAnswer là 'A', 'B', 'C' hoặc 'D'.
-   - true_false: Trắc nghiệm Đúng/Sai gồm 4 ý a, b, c, d (chuẩn ĐGNL/GDPT 2018), subItems: [{ id: 'a', statement: '...', isCorrect: true/false }, ...]
-   - short_answer: Trả lời ngắn, correctAnswer là con số hoặc cụm từ ngắn gọn.
-   - Các câu tự luận (essay_*): Lời giải thích (explanation) phải là hướng dẫn chấm và đáp án chi tiết từng bước.
-7. AN TOÀN HỌC THUẬT:
-   - Nếu có bất kỳ nghi vấn hoặc phương án cần giáo viên kiểm tra lại, đặt needsReview: true kèm reviewReason.
-8. ĐẦU RA BẮT BUỘC LÀ JSON ARRAY CÁC CÂU HỎI.`;
+QUY TẮC SỐNG CÒN:
+1. TUYỆT ĐỐI KHÔNG TRÙNG LẶP: Mỗi câu hỏi trong đề PHẢI KHÁC BIỆT HOÀN TOÀN 100% về nội dung, tình huống, số liệu bài toán và khía cạnh khảo sát. Nghiêm cấm dùng một mẫu câu lặp lại cho nhiều câu hỏi!
+2. ĐÚNG CHUẨN KIẾN THỨC MÔN VÀ KHỐI LỚP: Phù hợp lứa tuổi học sinh Việt Nam.
+3. RẢI ĐỀU NỘI DUNG: Các câu hỏi trắc nghiệm và tự luận phải bao quát toàn diện các nhánh kiến thức khác nhau của chủ đề (khái niệm, tính chất, đồ thị/sơ đồ, giải toán, bài toán liên hệ thực tế đời sống).
+4. MÔN TÍNH TOÁN: Nghiệm chẵn, số liệu thực tế, giải đúng từng bước, phương án nhiễu hợp lý và cùng kiểu dữ liệu.
+5. ĐỊNH DẠNG CÂU HỎI:
+   - mcq_4: Đúng 4 lựa chọn ['A. ...', 'B. ...', 'C. ...', 'D. ...'], đáp án là 'A', 'B', 'C' hoặc 'D'.
+   - true_false: 4 ý a, b, c, d rõ ràng với statement và isCorrect boolean.
+   - short_answer: Trả lời ngắn là giá trị số hoặc từ khóa cô đọng.
+   - essay_*: Tự luận có đề bài cụ thể và explanation là hướng dẫn chấm chi tiết từng ý/bước.
+6. ĐẦU RA BẮT BUỘC LÀ JSON ARRAY CÁC CÂU HỎI.`;
 
 // API: Generate Exam Questions
 app.post('/api/generate-exam', async (req: Request, res: Response) => {
@@ -82,7 +103,6 @@ app.post('/api/generate-exam', async (req: Request, res: Response) => {
       keepTeacherQuestions,
     } = config;
 
-    // Filter which question types are requested
     const requestedTypes = Object.entries(questionCounts || {})
       .filter(([_, count]) => Number(count) > 0)
       .map(([type, count]) => `${type}: ${count} câu`);
@@ -95,8 +115,8 @@ app.post('/api/generate-exam', async (req: Request, res: Response) => {
     const teacherQs = Array.isArray(teacherQuestions) && keepTeacherQuestions ? teacherQuestions : [];
     const neededCount = Math.max(0, totalQuestions - teacherQs.length);
 
-    // Build prompt
-    let prompt = `YÊU CẦU RA ĐỀ KIỂM TRA:
+    // Build prompt with heavy emphasis on diversity
+    let prompt = `YÊU CẦU BIÊN SOẠN BỘ ĐỀ KIỂM TRA ĐA DẠNG:
 - Cấp học: ${level.toUpperCase()}
 - Khối lớp: Lớp ${grade}
 - Môn học: ${subject}
@@ -104,29 +124,32 @@ app.post('/api/generate-exam', async (req: Request, res: Response) => {
 - Chương: ${chapter || 'Theo chương trình'}
 - Phạm vi kiến thức: ${scope || topic}
 - Nội dung trọng tâm cần kiểm tra: ${testedContent || topic}
-- Yêu cầu cần đạt: ${learningOutcomes || 'Chuẩn kiến thức kĩ năng'}
-- Ghi chú thêm của giáo viên: ${teacherNotes || 'Không có'}
+- Yêu cầu cần đạt: ${learningOutcomes || 'Chuẩn kiến thức kĩ năng GDPT 2018'}
+- Ghi chú giáo viên: ${teacherNotes || 'Không có'}
 - Thang điểm đề thi: ${scoreScale || 10} điểm
-- Tổng số câu cần sinh mới: ${neededCount} câu (Giáo viên đã cung cấp sẵn ${teacherQs.length} câu)
-- Cơ cấu các dạng câu hỏi yêu cầu sinh:
+- Tổng số câu cần sinh: đúng ${neededCount} câu hỏi MỚI KHÁC NHAU HOÀN TOÀN.
+
+Cơ cấu các dạng câu hỏi cần sinh:
 ${requestedTypes.join('\n')}
 
-- Phân bổ 4 mức độ nhận thức (${cognitiveDistribution?.mode === 'count' ? 'Theo số câu' : 'Theo tỷ lệ %'}):
-  + Nhận biết: ${cognitiveDistribution?.values?.recognition}%
-  + Thông hiểu: ${cognitiveDistribution?.values?.comprehension}%
-  + Vận dụng: ${cognitiveDistribution?.values?.application}%
-  + Vận dụng cao: ${cognitiveDistribution?.values?.highApplication}%
+Phân bổ 4 mức độ nhận thức:
+- Nhận biết: ${cognitiveDistribution?.values?.recognition}%
+- Thông hiểu: ${cognitiveDistribution?.values?.comprehension}%
+- Vận dụng: ${cognitiveDistribution?.values?.application}%
+- Vận dụng cao: ${cognitiveDistribution?.values?.highApplication}%
+
+QUY ĐỊNH BẮT BUỘC:
+Mỗi câu hỏi từ câu 1 đến câu ${neededCount} phải là một bài toán / câu hỏi độc lập, hỏi về một khía cạnh riêng biệt của bài học "${topic}", với các con số, công thức, ngữ liệu và tình huống KHÔNG ĐƯỢC GIỐNG NHAU.
 `;
 
     if (referenceMode === 'only_reference') {
-      prompt += `\nĐẶC BIỆT LƯU Ý: Chế độ "Chỉ sử dụng tài liệu đã cung cấp". Chỉ sử dụng kiến thức, ngữ liệu và dữ kiện có trong nội dung bài học hoặc tài liệu đính kèm bên dưới. Tuyệt đối không thêm kiến thức ngoài.\n`;
+      prompt += `\nLƯU Ý: Chế độ "Chỉ sử dụng tài liệu đã cung cấp". Hãy bám sát ngữ liệu bên dưới.\n`;
     }
 
     if (lessonContent && lessonContent.trim().length > 0) {
       prompt += `\n--- VĂN BẢN / NỘI DUNG BÀI HỌC GIÁO VIÊN CUNG CẤP ---\n${lessonContent.slice(0, 8000)}\n----------------------------------------------------\n`;
     }
 
-    // Assemble parts (text + any document contents/images)
     const contents: any[] = [];
     if (referenceDocuments && Array.isArray(referenceDocuments)) {
       referenceDocuments.forEach((doc: any) => {
@@ -156,30 +179,24 @@ ${requestedTypes.join('\n')}
       });
     }
 
-    prompt += `\nHãy sinh đúng ${neededCount} câu hỏi chuẩn xác, có tính phân loại cao, không trùng lặp, chia đều điểm theo thang ${scoreScale || 10}.
-Trả về định dạng JSON array danh sách các câu hỏi theo schema sau:
+    prompt += `\nHãy trả về đúng ${neededCount} câu hỏi đa dạng, chất lượng cao dưới dạng JSON array:
 [
   {
     "id": "Q01",
     "subject": "${subject}",
     "grade": "Lớp ${grade}",
     "topic": "${topic}",
-    "questionType": "mcq_4" (hoặc true_false, short_answer, essay_solve, reading_comp, ...),
-    "questionTypeName": "Tên loại câu",
-    "level": "Nhận biết" (hoặc "Thông hiểu", "Vận dụng", "Vận dụng cao"),
-    "question": "Nội dung câu hỏi...",
-    "readingPassage": "Ngữ liệu đọc hiểu nếu có (hoặc để trống)",
-    "options": ["A. ...", "B. ...", "C. ...", "D. ..."] (nếu là trắc nghiệm),
+    "questionType": "mcq_4",
+    "questionTypeName": "Trắc nghiệm 4 lựa chọn",
+    "level": "Nhận biết",
+    "question": "Nội dung câu hỏi cụ thể, giàu tính khoa học...",
+    "readingPassage": "",
+    "options": ["A. ...", "B. ...", "C. ...", "D. ..."],
     "correctAnswer": "A",
-    "explanation": "Lời giải thích chi tiết, từng bước tính toán hoặc căn cứ trong bài...",
+    "explanation": "Lời giải thích rõ ràng chi tiết...",
     "score": 0.5,
-    "learningOutcome": "Yêu cầu cần đạt",
-    "subItems": [
-      { "id": "a", "statement": "...", "isCorrect": true },
-      { "id": "b", "statement": "...", "isCorrect": false },
-      { "id": "c", "statement": "...", "isCorrect": true },
-      { "id": "d", "statement": "...", "isCorrect": false }
-    ],
+    "learningOutcome": "Chuẩn đầu ra cụ thể của câu này",
+    "subItems": [],
     "needsReview": false,
     "reviewReason": ""
   }
@@ -187,21 +204,14 @@ Trả về định dạng JSON array danh sách các câu hỏi theo schema sau:
 
     contents.push({ text: prompt });
 
-    const response = await ai.models.generateContent({
-      model: 'gemini-3.8-flash',
+    const rawResponse = await generateWithFallback({
       contents: contents.length === 1 ? prompt : { parts: contents },
-      config: {
-        systemInstruction: EXAM_SYSTEM_INSTRUCTION,
-        responseMimeType: 'application/json',
-      },
+      systemInstruction: EXAM_SYSTEM_INSTRUCTION,
     });
 
-    const generatedQuestions = extractJsonFromText(response.text || '[]');
-    
-    // Combine with teacher questions if any
+    const generatedQuestions = extractJsonFromText(rawResponse || '[]');
     const finalQuestions = [...teacherQs, ...generatedQuestions];
 
-    // Ensure all questions have proper sequential IDs and valid scores
     const totalScoreTarget = scoreScale || 10;
     const baseScorePerQ = finalQuestions.length > 0 ? Number((totalScoreTarget / finalQuestions.length).toFixed(2)) : 0.5;
 
@@ -215,7 +225,6 @@ Trả về định dạng JSON array danh sách các câu hỏi theo schema sau:
       if (!q.topic) q.topic = topic;
     });
 
-    // Adjust slight score difference so sum matches totalScoreTarget exactly
     const currentSum = Number(finalQuestions.reduce((s, q) => s + (q.score || 0), 0).toFixed(2));
     const scoreDiff = Number((totalScoreTarget - currentSum).toFixed(2));
     if (scoreDiff !== 0 && finalQuestions.length > 0) {
@@ -226,7 +235,7 @@ Trả về định dạng JSON array danh sách các câu hỏi theo schema sau:
 
     return res.json({ success: true, questions: finalQuestions });
   } catch (error: any) {
-    console.error('Error generating exam with Gemini:', error);
+    console.error('Error generating exam:', error);
     return res.status(500).json({
       success: false,
       error: error.message || 'Lỗi khi kết nối với mô hình AI tạo đề',
@@ -270,16 +279,12 @@ Trả về JSON duy nhất 1 object theo cấu trúc câu hỏi:
   "reviewReason": ""
 }`;
 
-    const response = await ai.models.generateContent({
-      model: 'gemini-3.8-flash',
+    const rawText = await generateWithFallback({
       contents: prompt,
-      config: {
-        systemInstruction: EXAM_SYSTEM_INSTRUCTION,
-        responseMimeType: 'application/json',
-      },
+      systemInstruction: EXAM_SYSTEM_INSTRUCTION,
     });
 
-    const newQuestion = extractJsonFromText(response.text || '{}');
+    const newQuestion = extractJsonFromText(rawText || '{}');
     newQuestion.id = currentQuestion.id;
     newQuestion.score = currentQuestion.score;
 
@@ -313,16 +318,12 @@ ${JSON.stringify(
 
 Trả về JSON array các câu hỏi mới tương đương:`;
 
-    const response = await ai.models.generateContent({
-      model: 'gemini-3.8-flash',
+    const rawText = await generateWithFallback({
       contents: prompt,
-      config: {
-        systemInstruction: EXAM_SYSTEM_INSTRUCTION,
-        responseMimeType: 'application/json',
-      },
+      systemInstruction: EXAM_SYSTEM_INSTRUCTION,
     });
 
-    const newQuestions = extractJsonFromText(response.text || '[]');
+    const newQuestions = extractJsonFromText(rawText || '[]');
     return res.json({ success: true, questions: newQuestions });
   } catch (error: any) {
     console.error('Error generating equivalent exam:', error);
@@ -346,16 +347,12 @@ Nhiệm vụ của bạn: Đọc và phân tích chính xác từng ô trong ma 
 Không tự ý thay đổi số lượng câu hoặc tỷ lệ điểm.
 Trả về JSON array danh sách các câu hỏi theo schema chuẩn.`;
 
-    const response = await ai.models.generateContent({
-      model: 'gemini-3.8-flash',
+    const rawText = await generateWithFallback({
       contents: prompt,
-      config: {
-        systemInstruction: EXAM_SYSTEM_INSTRUCTION,
-        responseMimeType: 'application/json',
-      },
+      systemInstruction: EXAM_SYSTEM_INSTRUCTION,
     });
 
-    const questions = extractJsonFromText(response.text || '[]');
+    const questions = extractJsonFromText(rawText || '[]');
     return res.json({ success: true, questions });
   } catch (error: any) {
     console.error('Error generating from matrix:', error);
