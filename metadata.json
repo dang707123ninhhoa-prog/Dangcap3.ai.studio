@@ -1,0 +1,6 @@
+{
+  "name": "RA ĐỀ KIỂM TRA AI – 3 CẤP",
+  "description": "Ứng dụng ra đề kiểm tra, đề thi, ma trận và bản đặc tả tự động bằng AI cho 3 cấp học Tiểu học, THCS, THPT cho mọi môn học.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
